@@ -1,6 +1,8 @@
-<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
-<title>Diario de español</title>
-<meta name="claude:viewport-fit-sides" content="cover">
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style><title>Diario de español</title>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+</head><body>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600&family=Unbounded:wght@500;700&display=swap">
 <style>
@@ -74,6 +76,9 @@ button[disabled]{opacity:.5;cursor:default}
 .entry .t{font-weight:600;min-width:0;overflow-wrap:anywhere}
 .entry .m{grid-column:2/4;color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums}
 .entry .s{font:500 15px var(--display);color:var(--accent)}
+#login{position:fixed;inset:0;z-index:50;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:24px}
+#login .box{max-width:360px;width:100%;text-align:center;display:flex;flex-direction:column;gap:14px}
+#btn-out{font-size:12px;min-height:32px;padding:4px 10px;margin-top:6px}
 .empty{color:var(--muted);text-align:center;padding:28px 16px;border:1px dashed var(--line);border-radius:var(--r)}
 .tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}
 table{border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
@@ -140,13 +145,14 @@ nav button[aria-current=page]{background:var(--chip);color:var(--ink)}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 
+<div id="login" hidden><div class="box"><h1>Diario <span>de</span> español</h1><p class="sub">Войдите, чтобы открыть свой дневник</p><button type="button" class="primary" id="login-btn">Войти через Google</button><div id="login-msg" class="toast err" role="status"></div></div></div>
 <div class="wrap">
   <header>
     <div>
       <h1>Diario <span>de</span> español</h1>
       <p class="sub">Дневник программы «Испанский с нуля, 12 недель»</p>
     </div>
-    <div id="status">Подключаюсь к хранилищу…</div>
+    <div><div id="status">Подключаюсь к хранилищу…</div><div style="text-align:right"><button type="button" class="ghost" id="btn-out" hidden>Выйти</button></div></div>
   </header>
 
   <!-- ЗАПИСЬ -->
@@ -240,6 +246,7 @@ nav button[aria-current=page]{background:var(--chip);color:var(--ink)}
     <div id="log-table" class="tablewrap" hidden></div>
     <div class="row">
       <button type="button" id="btn-csv" hidden>Скачать CSV</button>
+      <button type="button" id="btn-json" hidden>Резервная копия (JSON)</button>
       <span class="hint" id="csv-note"></span>
     </div>
   </section>
@@ -390,7 +397,7 @@ $("#f-date").onchange=e=>{ $("#f-toast").textContent=""; if(e.target.value) load
 $("#btn-save").onclick=async()=>{
   const date=$("#f-date").value, t=$("#f-toast");
   if(!date){ t.className="toast err"; t.textContent="Выберите дату."; return; }
-  if(!db){ t.className="toast err"; t.textContent="Хранилище недоступно: откройте страницу на claude.ai под своим аккаунтом."; return; }
+  if(!db){ t.className="toast err"; t.textContent="Хранилище недоступно: войдите через Google."; return; }
   // старые данные сохраняются целиком, сверху — значения формы
   const data={...(entries[date]||{}),...current,date,updatedAt:new Date().toISOString()};
   $("#btn-save").disabled=true;
@@ -734,13 +741,29 @@ function applyConfig(cfg){
 }
 renderForm(); loadDate(todayISO());
 
-(async()=>{
-  const c=window.claude;
-  if(!c||!c.use){ status("Хранилище недоступно в этом окне",true); return; }
-  dl=await c.use("downloads"); if(dl) $("#btn-csv").hidden=false;
-  db=await c.use("db");
-  if(!db){ status("Войдите в claude.ai, чтобы сохранять записи",true); return; }
-  status("Сохраняется в облако");
+// ---------- Firebase ----------
+const firebaseConfig = {
+  apiKey: "AIzaSyCL_O1gxQ9Ds-cHTU1xWnTCeG0zNXla2Js",
+  authDomain: "diario-espanol.firebaseapp.com",
+  projectId: "diario-espanol",
+  storageBucket: "diario-espanol.firebasestorage.app",
+  messagingSenderId: "668851904493",
+  appId: "1:668851904493:web:7a090eabf51c88d88051e4"
+};
+let started=false, auth=null, fs=null;
+const clean=o=>JSON.parse(JSON.stringify(o));
+dl={save:async({filename,data})=>{ const u=URL.createObjectURL(data); const a=document.createElement("a"); a.href=u; a.download=filename; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(u),4000); }};
+
+async function boot(user){
+  const base="users/"+user.uid+"/";
+  db={
+    doc:p=>{ const r=fs.doc(base+p); return {
+      set:d=>r.set(clean(d)), update:d=>r.update(clean(d)), delete:()=>r.delete(),
+      onSnapshot:(ok,err)=>r.onSnapshot(ok,err) }; },
+    collection:p=>{ const r=fs.collection(base+p); return { onSnapshot:(ok,err)=>r.onSnapshot(ok,err) }; }
+  };
+  $("#btn-csv").hidden=false; $("#btn-json").hidden=false; $("#btn-out").hidden=false;
+  status("Сохраняется в облако"+(user.email?" · "+user.email:""));
   startCards();
   db.doc("config/fields").onSnapshot(s=>{ applyConfig(s.exists?s.data():null); renderForm(); if(!$("#v-log").hidden) renderLog(); },()=>{});
   db.collection("entries").onSnapshot(s=>{
@@ -750,6 +773,27 @@ renderForm(); loadDate(todayISO());
     if(JSON.stringify(was)!==JSON.stringify(now)) loadDate($("#f-date").value);
     if(!$("#v-log").hidden) renderLog(); if(!$("#v-stats").hidden) renderStats();
   },e=>status("Связь с хранилищем прервалась, обновите страницу",true));
+}
+
+$("#btn-json").onclick=async()=>{
+  try{ await dl.save({filename:"diario-backup-"+todayISO()+".json",data:new Blob([JSON.stringify({entries,cards,cardCfg},null,1)],{type:"application/json"})}); }catch(e){}
+};
+$("#btn-out").onclick=()=>auth&&auth.signOut();
+$("#login-btn").onclick=async()=>{
+  $("#login-msg").textContent="";
+  try{ await auth.signInWithPopup(new firebase.auth.GoogleAuthProvider()); }
+  catch(e){ $("#login-msg").textContent="Не удалось войти: "+(e.code||e.message); }
+};
+
+(function init(){
+  if(firebaseConfig.apiKey.startsWith("PASTE")){ $("#login").hidden=false; $("#login-btn").disabled=true; $("#login-msg").textContent="В файле не вставлен apiKey (см. firebaseConfig)."; status("Нет apiKey",true); return; }
+  firebase.initializeApp(firebaseConfig);
+  auth=firebase.auth(); fs=firebase.firestore();
+  fs.enablePersistence({synchronizeTabs:true}).catch(()=>{});
+  auth.onAuthStateChanged(user=>{
+    if(user){ $("#login").hidden=true; if(!started){ started=true; boot(user); } }
+    else { if(started){ location.reload(); return; } $("#login").hidden=false; status("Нужен вход"); }
+  });
 })();
 </script>
 
